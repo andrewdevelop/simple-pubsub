@@ -1,4 +1,4 @@
-<?php 
+<?php
 
 namespace Core\Messaging;
 
@@ -38,11 +38,11 @@ abstract class InteractsWithQueue
     /** @var string */
     protected $service_id;
 
-	/** @var string */
-	protected $exchange = '';
+    /** @var string */
+    protected $exchange = '';
 
-	/** @var string */
-	protected $queue = '';
+    /** @var string */
+    protected $queue = '';
 
 
     /**
@@ -70,21 +70,25 @@ abstract class InteractsWithQueue
      * We create a connection to the server.
      * @return $this
      */
-	public function connect()
-	{
-		$this->connection = new AMQPStreamConnection($this->host, $this->port, $this->login, $this->password, $this->vhost);
-		$this->channel = $this->connection->channel();
-		return $this;
-	}
+    public function connect()
+    {
+        $this->connection = new AMQPStreamConnection($this->host, $this->port, $this->login, $this->password, $this->vhost);
+        $this->channel = $this->connection->channel();
+        return $this;
+    }
 
     /**
      * We close the channel and the connection;
      * @return void
      * @throws Exception
      */
-	protected function close()
-	{
-		$this->channel->close();
-		$this->connection->close();
-	}	
+    protected function close()
+    {
+        $this->channel->close();
+        try {
+            if ($this->connection !== null) $this->connection->close();
+        } catch (\ErrorException $e) {
+            // Connection might already be closed. Ignoring exceptions.
+        }
+    }
 }
