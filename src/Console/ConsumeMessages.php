@@ -1,13 +1,13 @@
-<?php 
+<?php
 
 namespace Core\Messaging\Console;
 
-use DateTimeImmutable;
-use Illuminate\Console\Command;
-use Core\Messaging\Contracts\Consumer;
-use Core\EventSourcing\DomainEvent;
 use Core\EventSourcing\Contracts\EventDispatcher;
+use Core\EventSourcing\DomainEvent;
+use Core\Messaging\Contracts\Consumer;
+use DateTimeImmutable;
 use Exception;
+use Illuminate\Console\Command;
 use PhpAmqpLib\Exception\AMQPRuntimeException;
 use PhpAmqpLib\Message\AMQPMessage;
 
@@ -45,7 +45,7 @@ class ConsumeMessages extends Command
      */
     public function __construct(Consumer $consumer, EventDispatcher $dispatcher)
     {
-    	parent::__construct();
+        parent::__construct();
         $this->consumer = $consumer;
         $this->dispatcher = $dispatcher;
     }
@@ -58,41 +58,30 @@ class ConsumeMessages extends Command
     public function handle()
     {
         $process_id = getmypid();
-        $timestamp = (new DateTimeImmutable('now', env('APP_TIMEZONE', 'UTC')))->format('Y-m-d H:i:s.u');
-        $time_limit = intval($this->option('timeout'));
 
-        $this->info("Starting consumer process $process_id at $timestamp");
+        $this->info("Starting consumer process {$process_id} at {$this->timestamp()}");
+
+        $this->handleSignals($process_id);
 
         try {
             $this->consumer->consume(function (AMQPMessage $message) {
                 $event = $this->mapMessageToEvent($message);
                 $this->dispatcher->dispatch($event);
             });
+
+            if (!extension_loaded('pcntl')) $this->shutdown();
+
         } catch (AMQPRuntimeException $e) {
             $this->error('AMQP exception: ' . $e->getMessage());
-            echo $e->getMessage() . PHP_EOL;
-            $this->consumer->close();
+            $this->shutdown();
         } catch (\RuntimeException $e) {
             $this->error('Runtime exception: ' . $e->getMessage());
-            $this->consumer->close();
+            $this->shutdown();
         } catch (\Exception $e) {
             $this->error('Error exception: ' . $e->getMessage());
-            $this->consumer->close();
+            $this->shutdown();
         }
-
-        if ($time_limit > 0 && !extension_loaded('pcntl')) {
-            $this->info("Time limit cannot set. Extension pcntl not installed.");
-        }
-        if ($time_limit > 0 && extension_loaded('pcntl')) {
-            $this->info("Time limit of {$time_limit} was set to process $process_id.");
-            pcntl_signal(SIGALRM, function () use ($time_limit, $process_id) {
-                $timestamp = (new DateTimeImmutable('now', env('APP_TIMEZONE', 'UTC')))->format('Y-m-d H:i:s.u');
-                $this->info("Consumer process $process_id stopped due to time limit of {$time_limit}s exceeded at $timestamp");
-                if (extension_loaded('posix')) posix_kill($process_id, SIGKILL);
-                exit(1);
-            });
-            pcntl_alarm($time_limit);
-        }
+        $this->info("Consumer stopped at {$this->timestamp()}.");
     }
 
     /**
@@ -103,5 +92,47 @@ class ConsumeMessages extends Command
     {
         $payload = json_decode($message->body, true);
         return new DomainEvent($payload);
+    }
+
+    public function shutdown()
+    {
+        $this->info('Gracefully stopping consumer process.');
+        $this->consumer->close();
+    }
+
+    protected function timestamp()
+    {
+        $tz = new \DateTimeZone(env('APP_TIMEZONE', 'UTC'));
+        $now = new DateTimeImmutable('now', $tz);
+        return $now->format('Y-m-d H:i:s.u');
+    }
+
+    /**
+     * @param int $process_id
+     */
+    protected function handleSignals($process_id): void
+    {
+        $time_limit = intval($this->option('timeout'));
+
+        if (extension_loaded('pcntl')) {
+            pcntl_async_signals(true);
+            pcntl_signal(SIGINT, [$this, 'shutdown']);
+            pcntl_signal(SIGTERM, [$this, 'shutdown']);
+        }
+
+        if ($time_limit > 0 && !extension_loaded('pcntl')) {
+            $this->warn("Time limit cannot set. Extension pcntl not installed.");
+        }
+
+        if ($time_limit > 0 && extension_loaded('pcntl')) {
+            $this->info("Time limit of {$time_limit}s was set to process $process_id.");
+            pcntl_signal(SIGALRM, function () use ($time_limit, $process_id) {
+                $this->info("Consumer process $process_id stopped due to time limit of {$time_limit}s exceeded at {$this->timestamp()}");
+                $this->shutdown();
+                if (extension_loaded('posix')) posix_kill($process_id, SIGKILL);
+                exit(1);
+            });
+            pcntl_alarm($time_limit);
+        }
     }
 }

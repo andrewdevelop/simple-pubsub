@@ -62,8 +62,6 @@ abstract class InteractsWithQueue
         $this->password = $password;
         $this->vhost = $vhost;
         $this->service_id = $service_id;
-
-        $this->connect();
     }
 
     /**
@@ -82,10 +80,10 @@ abstract class InteractsWithQueue
      * @return void
      * @throws Exception
      */
-    protected function close()
+    public function close()
     {
-        $this->channel->close();
         try {
+            if ($this->channel !== null) $this->channel->close();
             if ($this->connection !== null) $this->connection->close();
         } catch (\ErrorException $e) {
             // Connection might already be closed. Ignoring exceptions.

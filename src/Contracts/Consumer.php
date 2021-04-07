@@ -9,4 +9,9 @@ interface Consumer
      * @return mixed
      */
     public function consume(callable $callback);
+
+    /**
+     * @return mixed
+     */
+    public function close();
 }

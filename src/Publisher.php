@@ -17,8 +17,10 @@ class Publisher extends InteractsWithQueue implements Contract
 	public function publish(string $json)
 	{
 		$this->connect();
+
         $message = $this->makeMessage($json);
         $this->publishMessage($message);
+
 		$this->close();
 
 		return $message;

@@ -16,11 +16,11 @@ class Consumer extends InteractsWithQueue implements Contract
 	public function consume(callable $callback)
 	{
 		$this->connect();
+
         $this->makeConsumer($callback);
         while ($this->channel->is_consuming()) {
 		    $this->channel->wait();
 		}
-		$this->close();
 	}
 
     /**
