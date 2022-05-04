@@ -3,18 +3,15 @@
     "description": "A simple RabbitMQ pub/sub package for Lumen",
     "type": "package",
     "require": {
-        "php": "^7.2",
-        "php-amqplib/php-amqplib": "^2.10",
-        "andrewdevelop/event-sourcing": "dev-master",
-        "andrewdevelop/hex-contracts": "dev-master",
-        "illuminate/container": "^6.0",
-        "illuminate/console": "^6.0",
-        "ramsey/uuid": "^3.0",
-        "ext-json": "*"
-    },
-    "require-dev": {
-        "illuminate/events": "^6.0",
-        "vlucas/phpdotenv": "^3.3"
+        "php": "^8.0.2",
+        "php-amqplib/php-amqplib": "^3.2",
+        "andrewdevelop/event-sourcing": "^2.0",
+        "andrewdevelop/hex-contracts": "^2.0",
+        "illuminate/container": "^9.0",
+        "illuminate/console": "^9.0",
+        "ramsey/uuid": "^4.0",
+        "ext-json": "*",
+        "ext-sockets": "*"
     },
     "license": "MIT",
     "authors": [
