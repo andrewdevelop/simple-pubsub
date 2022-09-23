@@ -5,9 +5,8 @@ namespace Core\Messaging;
 use Illuminate\Support\ServiceProvider;
 use Core\Messaging\Contracts\Publisher as PublisherContract;
 use Core\Messaging\Contracts\Consumer as ConsumerContract;
-use Core\Messaging\Publisher;
-use Core\Messaging\Consumer;
 use InvalidArgumentException;
+use PhpAmqpLib\Connection\AbstractConnection;
 
 class MessagingServiceProvider extends ServiceProvider
 {
@@ -33,6 +32,11 @@ class MessagingServiceProvider extends ServiceProvider
             'service_id' => $this->app->config->get('mq.service_id'),
         ];
         $args = array_values($config);
+
+        $ts = new \DateTimeImmutable();
+        AbstractConnection::$LIBRARY_PROPERTIES['connection_name'] = [
+            'S', $config['service_id'] . "-" . $ts->format('Ymd-His')
+        ];
 
         $this->app->singleton(PublisherContract::class, function() use ($args) {
             return new Publisher(...$args);
