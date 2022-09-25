@@ -8,6 +8,7 @@ use Core\Messaging\Contracts\Consumer;
 use DateTimeImmutable;
 use Exception;
 use Illuminate\Console\Command;
+use Illuminate\Contracts\Config\Repository;
 use PhpAmqpLib\Exception\AMQPRuntimeException;
 use PhpAmqpLib\Message\AMQPMessage;
 
@@ -39,15 +40,26 @@ class ConsumeMessages extends Command
     protected $dispatcher;
 
     /**
+     * @var Repository
+     */
+    protected $config;
+
+    /**
      * Create a new command instance.
      * @param Consumer $consumer
      * @param EventDispatcher $dispatcher
+     * @param Repository $config
      */
-    public function __construct(Consumer $consumer, EventDispatcher $dispatcher)
+    public function __construct(
+        Consumer $consumer,
+        EventDispatcher $dispatcher,
+        Repository $config
+    )
     {
         parent::__construct();
         $this->consumer = $consumer;
         $this->dispatcher = $dispatcher;
+        $this->config = $config;
     }
 
     /**
@@ -65,6 +77,10 @@ class ConsumeMessages extends Command
 
         try {
             $this->consumer->consume(function (AMQPMessage $message) {
+                // Important! We need to filter out events with the same prefix/namespace,
+                //  if they are received from another service to avoid an infinite loop.
+                if ($message->getRoutingKey() != $this->config->get('mq.service_id')) return;
+
                 $event = $this->mapMessageToEvent($message);
                 $this->dispatcher->dispatch($event);
             });
