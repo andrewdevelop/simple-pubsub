@@ -1,4 +1,4 @@
-<?php 
+<?php
 
 namespace Core\Messaging;
 
@@ -13,15 +13,15 @@ class Consumer extends InteractsWithQueue implements Contract
      * @throws ErrorException
      * @throws Exception
      */
-	public function consume(callable $callback)
-	{
-		$this->connect();
+    public function consume(callable $callback)
+    {
+        $this->connect();
 
         $this->makeConsumer($callback);
         while ($this->channel->is_consuming()) {
-		    $this->channel->wait();
-		}
-	}
+            $this->channel->wait();
+        }
+    }
 
     /**
      * @param $callback

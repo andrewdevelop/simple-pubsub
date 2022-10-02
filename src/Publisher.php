@@ -1,4 +1,4 @@
-<?php 
+<?php
 
 namespace Core\Messaging;
 
@@ -14,23 +14,23 @@ class Publisher extends InteractsWithQueue implements Contract
      * @return AMQPMessage
      * @throws Exception
      */
-	public function publish(string $json)
-	{
-		$this->connect();
+    public function publish(string $json)
+    {
+        $this->connect();
 
         $message = $this->makeMessage($json);
         $this->publishMessage($message);
 
-		$this->close();
+        $this->close();
 
-		return $message;
-	}
+        return $message;
+    }
 
     /**
      * @param AMQPMessage $msg
      * @param void
      */
-	protected function publishMessage(AMQPMessage $msg)
+    protected function publishMessage(AMQPMessage $msg)
     {
         $exchange = 'events';
         $routing_key = $this->service_id;
@@ -47,7 +47,7 @@ class Publisher extends InteractsWithQueue implements Contract
      */
     protected function makeMessage($message): AMQPMessage
     {
-        $correlation_id = (string) Uuid::uuid4();
+        $correlation_id = (string)Uuid::uuid4();
         $content_type = 'application/json';
         return new AMQPMessage($message, compact('correlation_id', 'content_type'));
     }

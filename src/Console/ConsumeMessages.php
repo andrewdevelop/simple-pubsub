@@ -27,22 +27,11 @@ class ConsumeMessages extends Command
      */
     protected $description = 'Listen to a queue.';
 
-    /**
-     * Consumer instance.
-     * @var Consumer
-     */
-    protected $consumer;
+    protected Consumer $consumer;
 
-    /**
-     * Event dispatcher instance.
-     * @var EventDispatcher
-     */
-    protected $dispatcher;
+    protected EventDispatcher $dispatcher;
 
-    /**
-     * @var Repository
-     */
-    protected $config;
+    protected Repository $config;
 
     /**
      * Create a new command instance.
@@ -50,11 +39,7 @@ class ConsumeMessages extends Command
      * @param EventDispatcher $dispatcher
      * @param Repository $config
      */
-    public function __construct(
-        Consumer $consumer,
-        EventDispatcher $dispatcher,
-        Repository $config
-    )
+    public function __construct(Consumer $consumer, EventDispatcher $dispatcher, Repository $config)
     {
         parent::__construct();
         $this->consumer = $consumer;
@@ -77,10 +62,6 @@ class ConsumeMessages extends Command
 
         try {
             $this->consumer->consume(function (AMQPMessage $message) {
-                // Important! We need to filter out events with the same prefix/namespace,
-                //  if they are received from another service to avoid an infinite loop.
-                if ($message->getRoutingKey() != $this->config->get('mq.service_id')) return;
-
                 $event = $this->mapMessageToEvent($message);
                 $this->dispatcher->dispatch($event);
             });
@@ -104,19 +85,19 @@ class ConsumeMessages extends Command
      * @param AMQPMessage $message
      * @return DomainEvent
      */
-    protected function mapMessageToEvent(AMQPMessage $message)
+    protected function mapMessageToEvent(AMQPMessage $message): DomainEvent
     {
         $payload = json_decode($message->body, true);
         return new DomainEvent($payload);
     }
 
-    public function shutdown()
+    public function shutdown(): void
     {
         $this->info('Gracefully stopping consumer process.');
         $this->consumer->close();
     }
 
-    protected function timestamp()
+    protected function timestamp(): string
     {
         $tz = new \DateTimeZone(env('APP_TIMEZONE', 'UTC'));
         $now = new DateTimeImmutable('now', $tz);
@@ -126,7 +107,7 @@ class ConsumeMessages extends Command
     /**
      * @param int $process_id
      */
-    protected function handleSignals($process_id): void
+    protected function handleSignals(int $process_id): void
     {
         $time_limit = intval($this->option('timeout'));
 

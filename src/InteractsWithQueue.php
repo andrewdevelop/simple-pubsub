@@ -8,41 +8,25 @@ use PhpAmqpLib\Connection\AMQPStreamConnection;
 
 abstract class InteractsWithQueue
 {
-    /**
-     * Connection instance.
-     * @var AMQPStreamConnection
-     */
-    protected $connection;
+    protected AMQPStreamConnection $connection;
 
-    /**
-     * Channel instance.
-     * @var AMQPChannel
-     */
-    protected $channel;
+    protected AMQPChannel $channel;
 
-    /** @var string */
-    protected $host;
+    protected string $host;
 
-    /** @var string */
-    protected $port;
+    protected string $port;
 
-    /** @var string */
-    protected $login;
+    protected string $login;
 
-    /** @var string */
-    protected $password;
+    protected string $password;
 
-    /** @var string */
-    protected $vhost;
+    protected string $vhost;
 
-    /** @var string */
-    protected $service_id;
+    protected string $service_id;
 
-    /** @var string */
-    protected $exchange = '';
+    protected string $exchange = '';
 
-    /** @var string */
-    protected $queue = '';
+    protected string $queue = '';
 
 
     /**
@@ -68,7 +52,7 @@ abstract class InteractsWithQueue
      * We create a connection to the server.
      * @return $this
      */
-    public function connect()
+    public function connect(): static
     {
         $this->connection = new AMQPStreamConnection($this->host, $this->port, $this->login, $this->password, $this->vhost);
         $this->channel = $this->connection->channel();
@@ -83,8 +67,8 @@ abstract class InteractsWithQueue
     public function close()
     {
         try {
-            if ($this->channel !== null) $this->channel->close();
-            if ($this->connection !== null) $this->connection->close();
+            $this->channel?->close();
+            $this->connection?->close();
         } catch (\ErrorException $e) {
             // Connection might already be closed. Ignoring exceptions.
         }

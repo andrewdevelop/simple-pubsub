@@ -1,4 +1,4 @@
-<?php 
+<?php
 
 namespace Core\Messaging;
 
@@ -12,16 +12,16 @@ use Core\Messaging\Contracts\Publisher;
  */
 class EventPublisher extends Reactor
 {
-	protected $publisher;
+    protected Publisher $publisher;
 
-	public function __construct(Publisher $publisher)
-	{
-		$this->publisher = $publisher;
-	}
+    public function __construct(Publisher $publisher)
+    {
+        $this->publisher = $publisher;
+    }
 
-	public function handle($event_name, Event $event)
-	{
-		$message = (string) $event;
-		return $this->publisher->publish($message);
-	}
+    public function handle($event_name, Event $event)
+    {
+        $message = (string)$event;
+        return $this->publisher->publish($message);
+    }
 }
