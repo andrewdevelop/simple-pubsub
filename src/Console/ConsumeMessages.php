@@ -19,7 +19,7 @@ class ConsumeMessages extends Command
      * @var string
      */
     protected $signature = 'mq:server
-                            {--timeout=0 : The number of seconds a child process can run}';
+                            {--timeout=3600 : The number of seconds a child process can run}';
 
     /**
      * The console command description.
@@ -56,7 +56,7 @@ class ConsumeMessages extends Command
     {
         $process_id = getmypid();
 
-        $this->info("Starting consumer process {$process_id} at {$this->timestamp()}");
+        $this->info('starting consumer');
 
         $this->handleSignals($process_id);
 
@@ -71,14 +71,19 @@ class ConsumeMessages extends Command
         } catch (AMQPRuntimeException $e) {
             $this->error('AMQP exception: ' . $e->getMessage());
             $this->shutdown();
+            return 1;
         } catch (\RuntimeException $e) {
-            $this->error('Runtime exception: ' . $e->getMessage());
+            $this->error('runtime exception: ' . $e->getMessage());
             $this->shutdown();
+            return 1;
         } catch (\Exception $e) {
-            $this->error('Error exception: ' . $e->getMessage());
+            $this->error('error exception: ' . $e->getMessage());
             $this->shutdown();
+            return 1;
         }
-        $this->info("Consumer stopped at {$this->timestamp()}.");
+        $this->info("consumer stopped.");
+
+        return 0; // exit gracefully
     }
 
     /**
@@ -93,13 +98,18 @@ class ConsumeMessages extends Command
 
     public function shutdown(): void
     {
-        $this->info('Gracefully stopping consumer process.');
-        $this->consumer->close();
+        $this->info('gracefully stopping consumer process.');
+        try {
+            $this->consumer->close();
+        } catch (Exception $e) {
+            $this->warn('cannot close consumer: ' . $e->getMessage());
+            exit(1); // exit with error
+        }
     }
 
     protected function timestamp(): string
     {
-        $tz = new \DateTimeZone(env('APP_TIMEZONE', 'UTC'));
+        $tz = new \DateTimeZone('UTC');
         $now = new DateTimeImmutable('now', $tz);
         return $now->format('Y-m-d H:i:s.u');
     }
@@ -115,21 +125,73 @@ class ConsumeMessages extends Command
             pcntl_async_signals(true);
             pcntl_signal(SIGINT, [$this, 'shutdown']);
             pcntl_signal(SIGTERM, [$this, 'shutdown']);
+            pcntl_signal(SIGINT, [$this, 'shutdown']);
         }
 
         if ($time_limit > 0 && !extension_loaded('pcntl')) {
-            $this->warn("Time limit cannot set. Extension pcntl not installed.");
+            $this->warn("time limit cannot set, pcntl extension not installed.");
         }
 
         if ($time_limit > 0 && extension_loaded('pcntl')) {
-            $this->info("Time limit of {$time_limit}s was set to process $process_id.");
+            $this->info("execution limit of {$time_limit}s was set.");
             pcntl_signal(SIGALRM, function () use ($time_limit, $process_id) {
-                $this->info("Consumer process $process_id stopped due to time limit of {$time_limit}s exceeded at {$this->timestamp()}");
+                $this->info("consumer stopped due to time limit of {$time_limit}s.");
                 $this->shutdown();
-                if (extension_loaded('posix')) posix_kill($process_id, SIGKILL);
-                exit(1);
+                if (extension_loaded('posix')) {
+                    posix_kill($process_id, SIGKILL);
+                }
+                exit(0); // exit gracefully
             });
             pcntl_alarm($time_limit);
         }
+    }
+
+
+    protected function appendMessageMeta($string): string
+    {
+        $host = gethostname();
+        $process_id = getmypid();
+        $service_id = $this->config->get('mq.service_id');
+        return sprintf(
+            '%s - %s@%s - pid%s | %s',
+            $this->timestamp(), $service_id, $host, $process_id, $string
+        );
+    }
+
+    /**
+     * Write a string as information output.
+     *
+     * @param string $string
+     * @param int|string|null $verbosity
+     * @return void
+     */
+    public function info($string, $verbosity = null)
+    {
+        parent::info($this->appendMessageMeta($string), $verbosity);
+    }
+
+    /**
+     * Write a string as warning output.
+     *
+     * @param string $string
+     * @param int|string|null $verbosity
+     * @return void
+     */
+    public function warn($string, $verbosity = null)
+    {
+        parent::warn($this->appendMessageMeta($string), $verbosity);
+    }
+
+
+    /**
+     * Write a string as error output.
+     *
+     * @param string $string
+     * @param int|string|null $verbosity
+     * @return void
+     */
+    public function error($string, $verbosity = null)
+    {
+        parent::error($this->appendMessageMeta($string), $verbosity);
     }
 }

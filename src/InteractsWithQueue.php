@@ -64,13 +64,21 @@ abstract class InteractsWithQueue
      * @return void
      * @throws Exception
      */
-    public function close()
+    public function close(): void
     {
+        $error = null;
         try {
-            $this->channel?->close();
-            $this->connection?->close();
+            if (isset($this->channel)) $this->channel->close();
         } catch (\ErrorException $e) {
             // Connection might already be closed. Ignoring exceptions.
+            $error = $e;
         }
+        try {
+            if (isset($this->connection)) $this->connection->close();
+        } catch (\ErrorException $e) {
+            // Connection might already be closed. Ignoring exceptions.
+            $error = $e;
+        }
+        if ($error) throw $error;
     }
 }
