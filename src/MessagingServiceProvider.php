@@ -36,7 +36,7 @@ class MessagingServiceProvider extends ServiceProvider implements DeferrableProv
 
         $ts = new \DateTimeImmutable();
         AbstractConnection::$LIBRARY_PROPERTIES['connection_name'] = [
-            'S', $config['service_id'] . "-" . $ts->format('Ymd-His')
+            'S', $config['service_id'] . '@' . gethostname() . '-' . $ts->format('Ymd-His')
         ];
 
         $this->app->singleton(PublisherContract::class, fn() => new Publisher(...$args));
