@@ -6,6 +6,9 @@ use Exception;
 use PhpAmqpLib\Channel\AMQPChannel;
 use PhpAmqpLib\Connection\AMQPStreamConnection;
 
+/**
+ * @deprecated Use Consumer or Publisher instead.
+ */
 abstract class InteractsWithQueue
 {
     protected AMQPStreamConnection $connection;

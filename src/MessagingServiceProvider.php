@@ -32,16 +32,15 @@ class MessagingServiceProvider extends ServiceProvider implements DeferrableProv
             'vhost' => $this->app->config->get('mq.vhost'),
             'service_id' => $this->app->config->get('mq.service_id'),
         ];
-        $args = array_values($config);
 
         $ts = new \DateTimeImmutable();
         AbstractConnection::$LIBRARY_PROPERTIES['connection_name'] = [
             'S', $config['service_id'] . '@' . gethostname() . '-' . $ts->format('Ymd-His')
         ];
 
-        $this->app->singleton(PublisherContract::class, fn() => new Publisher(...$args));
+        $this->app->singleton(PublisherContract::class, fn() => new Publisher($config));
 
-        $this->app->singleton(ConsumerContract::class, fn() => new Consumer(...$args));
+        $this->app->singleton(ConsumerContract::class, fn() => new Consumer($config));
     }
 
     /**
