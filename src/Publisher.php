@@ -1,108 +1,101 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Core\Messaging;
 
+use Core\Messaging\Contracts\Publisher as Contract;
 use Exception;
 use PhpAmqpLib\Channel\AMQPChannel;
-use PhpAmqpLib\Connection\AbstractConnection;
 use PhpAmqpLib\Connection\AMQPStreamConnection;
 use PhpAmqpLib\Message\AMQPMessage;
+use Psr\Log\LoggerInterface;
 use Ramsey\Uuid\Uuid;
-use Core\Messaging\Contracts\Publisher as Contract;
 
 class Publisher implements Contract
 {
-    /**
-     * Connection timeout in seconds. Needs to be at least 2x heartbeat.
-     * @var int
-     */
-    protected int $connection_timeout = 60;
-
-    /**
-     * Heartbeat timeout in seconds.
-     * @var int
-     */
-    protected int $heartbeat_timeout = 30;
-
     protected AMQPStreamConnection|null $connection;
 
     protected AMQPChannel|null $channel;
 
-    protected array $config;
+    protected LoggerInterface|null $logger = null;
 
-    protected string $service_id;
-
-    public function __construct(array $config)
+    /**
+     * @param InternalConfig $config
+     */
+    public function __construct(
+        protected readonly InternalConfig $config,
+    )
     {
-        $this->config = $config;
-        $this->service_id = $config['service_id'];
     }
 
-    protected function connect(): void
+    public function withLogger(LoggerInterface $logger): static
     {
-        AbstractConnection::$LIBRARY_PROPERTIES['connection_name'] = [
-            'S', ''.$this->service_id . '@' . gethostname() . '-p-' . date('Ymd-His')
-        ];
-        $this->connection = new AMQPStreamConnection(
-            host: $this->config['host'] ?? "localhost",
-            port: $this->config['port'] ?? 5672,
-            user: $this->config['login'] ?? "guest",
-            password: $this->config['password'] ?? "guest",
-            vhost: $this->config['vhost'] ?? "/",
-            insist: false,
-            login_method: 'AMQPLAIN',
-            login_response: null,
-            locale: 'en_US',
-            connection_timeout: $this->connection_timeout,
-            read_write_timeout: $this->connection_timeout,
-            context: null,
-            keepalive: true,
-            heartbeat: $this->heartbeat_timeout,
-        );
-
-        $this->channel = $this->connection->channel();
+        $this->logger = $logger;
+        return $this;
     }
 
     /**
-     * @param string $json
+     * @throws Exception
+     */
+    protected function connect(): void
+    {
+        $this->connection = ConnectionFactory::create($this->config, 'p');
+
+        $this->channel = $this->connection->channel();
+
+        // Auto-declare the exchange as fanout to ensure it exists
+        Topology::declareExchange($this->channel, $this->config->exchange_name);
+    }
+
+    /**
+     * @param string $str_message
      * @return AMQPMessage
      * @throws Exception
      */
-    public function publish(string $json)
+    public function publish(string $str_message): AMQPMessage
     {
         $this->connect();
-        $message = $this->makeMessage($json);
-        $this->publishMessage($this->channel, $message);
+        $message = $this->makeMessage($str_message);
+        if ($this->channel !== null) {
+            $this->publishMessage($this->channel, $message);
+        }
         $this->disconnect();
         return $message;
     }
 
     /**
+     * @param AMQPChannel $channel
      * @param AMQPMessage $msg
-     * @param void
+     * @return void
      */
-    protected function publishMessage(AMQPChannel $channel, AMQPMessage $msg)
+    protected function publishMessage(AMQPChannel $channel, AMQPMessage $msg): void
     {
         $channel->basic_publish(
             msg: $msg,
-            exchange: 'events',
-            routing_key: $this->service_id,
+            exchange: $this->config->exchange_name,
+            routing_key: '', // Fanout exchange ignores routing key
             mandatory: false,
             immediate: false,
             ticket: null
         );
+        $this->log("publishing message: {$msg->getBody()}", 'debug');
     }
 
     /**
-     * @param $message
+     * @param string $message
      * @return AMQPMessage
      * @throws Exception
      */
-    protected function makeMessage($message): AMQPMessage
+    protected function makeMessage(string $message): AMQPMessage
     {
-        $correlation_id = $message['uuid'] ?? (string)Uuid::uuid4();
+        $decoded = json_decode($message, true);
+        $uuid = (is_array($decoded) && isset($decoded['uuid']) && is_scalar($decoded['uuid'])) ? (string)$decoded['uuid'] : (string)Uuid::uuid4();
+        $correlation_id = $uuid;
         $content_type = 'application/json';
-        return new AMQPMessage($message, compact('correlation_id', 'content_type'));
+        $app_id = $this->config->service_id;
+
+        return new AMQPMessage($message, compact('correlation_id', 'content_type', 'app_id'));
     }
 
     protected function disconnect(): void
@@ -111,12 +104,14 @@ class Publisher implements Contract
             if ($this->channel && $this->channel->is_open()) $this->channel->close();
         } catch (\Throwable $e) {
             // Channel might already be closed. Ignoring exceptions.
+            $this->log('Failed to close channel: ' . $e->getMessage(), 'warning');
         }
 
         try {
             if ($this->connection && $this->connection->isConnected()) $this->connection->close();
         } catch (\Throwable $e) {
             // Connection might already be closed. Ignoring exceptions.
+            $this->log('Failed to close connection: ' . $e->getMessage(), 'warning');
         }
     }
 
@@ -126,5 +121,22 @@ class Publisher implements Contract
     public function close()
     {
         $this->disconnect();
+    }
+
+    /**
+     * @param string $message
+     * @param string $level
+     * @return void
+     */
+    protected function log(string $message, string $level = 'info'): void
+    {
+        if ($this->logger === null) return;
+
+        $context = [
+            'type' => 'publisher',
+            'service_id' => $this->config->service_id,
+            'hostname' => gethostname(),
+        ];
+        $this->logger->log($level, $message, $context);
     }
 }

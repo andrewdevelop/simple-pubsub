@@ -11,6 +11,16 @@ return [
     'login' => env('RABBITMQ_LOGIN', 'guest'),
     'password' => env('RABBITMQ_PASSWORD', 'guest'),
     'vhost' => env('RABBITMQ_VHOST', '/'),
+    'connection_timeout' => env('RABBITMQ_CONNECTION_TIMEOUT', 120),
+    'heartbeat_timeout' => env('RABBITMQ_HEARTBEAT_TIMEOUT', 60),
+    
+    /** Topology config */
+    'exchange_name' => env('RABBITMQ_EXCHANGE_NAME', 'events'),
+    'queue_prefix' => env('RABBITMQ_QUEUE_PREFIX', 'evt'),
+
+    'with_failover' => env('RABBITMQ_WITH_FAILOVER', false),
+    'max_retries' => env('RABBITMQ_MAX_RETRIES', 5),
+    'retry_delay_sec' => env('RABBITMQ_RETRY_DELAY_SEC', 10),
     'ssl_params' => [
         'ssl_on' => env('RABBITMQ_SSL', false),
         'cafile' => env('RABBITMQ_SSL_CAFILE', null),

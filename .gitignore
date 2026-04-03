@@ -2,3 +2,8 @@
 /.idea
 /tests/index.php
 composer.phar
+
+.phpunit.result.cache
+.phpunit.cache
+
+.DS_Store

@@ -2,15 +2,17 @@
     "name": "andrewdevelop/simple-pubsub",
     "description": "A simple RabbitMQ pub/sub package for Lumen",
     "type": "package",
+    "version": "2.2.0",
     "require": {
-        "php": "^8.1",
-        "php-amqplib/php-amqplib": "^3.5",
+        "php": "^8.1|^8.2",
+        "php-amqplib/php-amqplib": "^3.7",
         "andrewdevelop/event-sourcing": "^2.0",
         "andrewdevelop/hex-contracts": "^2.0",
-        "illuminate/container": "^9.0",
-        "illuminate/console": "^9.0",
-        "illuminate/config": "^9.0",
+        "illuminate/container": "^9.0|^10.0",
+        "illuminate/console": "^9.0|^10.0",
+        "illuminate/config": "^9.0|^10.0",
         "ramsey/uuid": "^4.0",
+        "psr/log": "^3.0",
         "ext-json": "*",
         "ext-sockets": "*",
         "ext-pcntl": "*"
@@ -32,5 +34,10 @@
         "preferred-install": "dist",
         "sort-packages": true,
         "optimize-autoloader": true
+    },
+    "require-dev": {
+        "mockery/mockery": "^1.6",
+        "phpstan/phpstan": "^2.1",
+        "phpunit/phpunit": "^10.5"
     }
 }

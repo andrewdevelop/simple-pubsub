@@ -1,13 +1,16 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Core\Messaging;
 
 use Core\Messaging\Contracts\Consumer as Contract;
+use DateTimeImmutable;
 use PhpAmqpLib\Channel\AMQPChannel;
-use PhpAmqpLib\Connection\AbstractConnection;
 use PhpAmqpLib\Connection\AMQPStreamConnection;
 use PhpAmqpLib\Exception\AMQPRuntimeException;
 use PhpAmqpLib\Message\AMQPMessage;
+use Psr\Log\LoggerInterface;
 
 class Consumer implements Contract
 {
@@ -15,21 +18,21 @@ class Consumer implements Contract
      * Connection timeout in seconds. Needs to be at least 2x heartbeat.
      * @var int
      */
-    protected int $connection_timeout = 120;
+    protected int $connection_timeout;
 
     /**
      * Heartbeat timeout in seconds.
      * @var int
      */
-    protected int $heartbeat_timeout = 60;
+    protected int $heartbeat_timeout;
 
-    protected int $restart_timeout = 30;
+    protected int $restart_timeout = 10;
 
-    protected AMQPStreamConnection|null $connection;
+    protected AMQPStreamConnection|null $connection = null;
 
-    protected AMQPChannel|null $channel;
+    protected AMQPChannel|null $channel = null;
 
-    protected array $config;
+    protected InternalConfig $config;
 
     protected string $service_id;
 
@@ -39,14 +42,36 @@ class Consumer implements Contract
 
     private bool $force_shutdown = false;
 
-    public function __construct(array $config, int|null $timeout = null, bool $strict = false)
+    private bool $auto_ack = true;
+
+    private bool $with_dlq = false;
+
+    protected LoggerInterface|null $logger = null;
+
+    /**
+     * @param InternalConfig $config
+     * @param int|null $timeout
+     * @param bool $strict
+     * @param bool $auto_ack
+     */
+    public function __construct(InternalConfig $config, int|null $timeout = null, bool $strict = false, bool $auto_ack = true)
     {
         $this->config = $config;
-        $this->service_id = $config['service_id'];
+        $this->service_id = $config->service_id;
+        $this->with_dlq = $config->with_failover;
+        $this->connection_timeout = $config->connection_timeout;
+        $this->heartbeat_timeout = $config->heartbeat_timeout;
         $this->timeout = $timeout ?? 3600;
         $this->strict = $strict;
+        $this->auto_ack = $auto_ack;
 
         $this->registerSignalHandlers();
+    }
+
+    public function withLogger(LoggerInterface $logger): static
+    {
+        $this->logger = $logger;
+        return $this;
     }
 
     protected function registerSignalHandlers(): void
@@ -66,7 +91,11 @@ class Consumer implements Contract
         pcntl_alarm($this->timeout);
     }
 
-    public function handleSignals(int $signal)
+    /**
+     * @param int $signal
+     * @return void
+     */
+    public function handleSignals(int $signal): void
     {
         $this->log("signal $signal received");
         switch ($signal) {
@@ -94,7 +123,7 @@ class Consumer implements Contract
             sleep($this->restart_timeout);
         }
         if (extension_loaded('posix')) {
-            posix_kill(getmypid(), $signal);
+            posix_kill((int)getmypid(), $signal);
         }
         exit($code);
     }
@@ -102,29 +131,18 @@ class Consumer implements Contract
     protected function connect(): void
     {
         try {
-            AbstractConnection::$LIBRARY_PROPERTIES['connection_name'] = [
-                'S', $this->service_id . '@' . gethostname() . '-c-' . date('Ymd-His')
-            ];
-            $this->connection = new AMQPStreamConnection(
-                host: $this->config['host'] ?? "localhost",
-                port: $this->config['port'] ?? 5672,
-                user: $this->config['login'] ?? "guest",
-                password: $this->config['password'] ?? "guest",
-                vhost: $this->config['vhost'] ?? "/",
-                insist: false,
-                login_method: 'AMQPLAIN',
-                login_response: null,
-                locale: 'en_US',
-                connection_timeout: $this->connection_timeout,
-                read_write_timeout: $this->connection_timeout,
-                context: null,
-                keepalive: true,
-                heartbeat: $this->heartbeat_timeout,
-            );
+            $this->connection = ConnectionFactory::create($this->config, 'c');
             $this->log("connected", 'info');
         } catch (\Throwable $e) {
             $this->log("connection error: {$e->getMessage()}", 'error');
             $this->kill(SIGKILL);
+            return;
+        }
+
+        if (!$this->connection) {
+            $this->log("connection error: connection is null", 'error');
+            $this->kill(SIGKILL);
+            return;
         }
 
         $this->channel = $this->connection->channel();
@@ -140,25 +158,47 @@ class Consumer implements Contract
 
             $this->log("message received", 'debug');
 
-            if ($message->body === 'quit') {
+            if ($message->getBody() === 'quit') {
                 $this->log('quit message received, stopping consumer', 'warning');
-                $message->getChannel()->basic_cancel($message->getConsumerTag());
+                $channel = $message->getChannel();
+                $channel?->basic_cancel((string)$message->getConsumerTag());
                 $this->force_shutdown = true;
             } else {
+                // Ignore messages generated by our own service to prevent loopback
+                if ($message->has('app_id') && $message->get('app_id') === $this->service_id) {
+                    $this->log("ignoring loopback message from self ({$this->service_id})", 'debug');
+                    $this->ackMessage($message);
+                    return;
+                }
+
                 try {
                     $callback($message);
+                    $this->ackMessage($message);
                 } catch (\Throwable $e) {
                     if ($this->strict) {
                         $this->log("unprocessable entity: {$e->getMessage()}", 'error');
                         $this->disconnect();
                         $this->kill(1);
                     } else {
-                        $this->log('unprocessable entity, ignoring message, ' . $e->getMessage(), 'error');
+                        if ($this->with_dlq) {
+                            $queueName = $this->config->queue_prefix . '_' . $this->service_id;
+                            $deathCount = $this->getDeathCount($message, $queueName);
+                            if ($deathCount >= $this->config->max_retries) {
+                                $this->log("message failed {$deathCount} times, sending to DLQ. Error: {$e->getMessage()}", 'error');
+                                $channel = $message->getChannel();
+                                $channel?->basic_publish($message, '', $queueName . '_dlq');
+                                $this->ackMessage($message);
+                            } else {
+                                $this->log("message failed, nacking to retry (attempt " . ($deathCount + 1) . "). Error: {$e->getMessage()}", 'warning');
+                                $this->nackMessage($message);
+                            }
+                        } else {
+                            $this->log('unprocessable entity, ignoring message, ' . $e->getMessage(), 'error');
+                            $this->ackMessage($message);
+                        }
                     }
                 }
             }
-            // Acknowledge the message!
-            $message->ack();
 
             // Unblock any incoming exit signals, message has been processed at this point.
             pcntl_sigprocmask(SIG_UNBLOCK, [SIGTERM, SIGINT]);
@@ -170,11 +210,17 @@ class Consumer implements Contract
 
         $this->connect();
 
+        if (!$this->channel) {
+            $this->log("channel is not initialized", 'error');
+            $this->kill(SIGKILL);
+            return;
+        }
+
         $this->bootConsumer($this->channel, $this->service_id, $handler);
 
         try {
             $this->log('waiting for messages', 'info');
-            while ($this->channel->is_open() && !$this->force_shutdown) {
+            while ($this->channel && $this->channel->is_open() && !$this->force_shutdown) {
                 $this->channel->wait();
                 // Dispatch incoming exit signals.
                 pcntl_signal_dispatch();
@@ -199,15 +245,24 @@ class Consumer implements Contract
         exit(0);
     }
 
-    private function shutdown()
+    private function shutdown(): void
     {
         $this->force_shutdown = true;
     }
 
     protected function bootConsumer(AMQPChannel $channel, string $tag, callable $callback): void
     {
+        $queue = Topology::declareQueue(
+            $channel,
+            $tag,
+            $this->with_dlq,
+            $this->config->exchange_name,
+            $this->config->queue_prefix,
+            $this->config->retry_delay_sec
+        );
+
         $channel->basic_consume(
-            queue: 'evt_' . $tag,
+            queue: $queue,
             consumer_tag: $tag,
             no_local: false,
             no_ack: false,
@@ -215,9 +270,7 @@ class Consumer implements Contract
             nowait: false,
             callback: $callback,
             ticket: null,
-            arguments: [
-                // 'x-cancel-on-ha-failover' => ['t', false] // fail over to another node,
-            ]
+            arguments: []
         );
     }
 
@@ -243,11 +296,85 @@ class Consumer implements Contract
         }
     }
 
-    public function log(string $message, $level = 'info'): void
+    /**
+     * @param string $message
+     * @param string $level
+     * @return void
+     */
+    protected function log(string $message, string $level = 'info'): void
     {
-        $now = new \DateTimeImmutable('now', new \DateTimeZone('UTC'));
-        echo $now->format('Y-m-d H:i:s') . ' '
-            . $this->service_id . '@' . gethostname()
-            . ' ' . $level . ': ' . $message . "\n";
+        if ($this->logger === null) return;
+
+        $context = [
+            'type' => 'consumer',
+            'service_id' => $this->config->service_id,
+            'hostname' => gethostname(),
+        ];
+        $this->logger->log($level, $message, $context);
+    }
+
+    /**
+     * @param AMQPMessage $message
+     * @param string $queueName
+     * @return int
+     */
+    protected function getDeathCount(AMQPMessage $message, string $queueName): int
+    {
+        if (!$message->has('application_headers')) {
+            return 0;
+        }
+
+        /** @var \PhpAmqpLib\Wire\AMQPTable $headersTable */
+        $headersTable = $message->get('application_headers');
+        $headers = $headersTable->getNativeData();
+
+        if (!isset($headers['x-death']) || !is_array($headers['x-death'])) {
+            return 0;
+        }
+
+        foreach ($headers['x-death'] as $death) {
+            if (is_array($death) &&
+                isset($death['queue'], $death['reason'], $death['count']) &&
+                $death['queue'] === $queueName &&
+                $death['reason'] === 'rejected'
+            ) {
+                return is_numeric($death['count']) ? (int)$death['count'] : 0;
+            }
+        }
+
+        return 0;
+    }
+
+    protected function ackMessage(AMQPMessage $message): void
+    {
+        if (!$this->auto_ack) return;
+
+        $channel = $message->getChannel();
+        if ($channel && $channel->is_open()) {
+            try {
+                $message->ack();
+            } catch (\Throwable $e) {
+                $this->log("cannot ack message: {$e->getMessage()}", 'error');
+            }
+        } else {
+            $this->log("cannot ack message: channel is closed", 'error');
+        }
+    }
+
+    protected function nackMessage(AMQPMessage $message): void
+    {
+        if (!$this->auto_ack) return;
+
+        $channel = $message->getChannel();
+        if ($channel && $channel->is_open()) {
+            try {
+                // Reject without requeue triggers DLX
+                $message->nack(false);
+            } catch (\Throwable $e) {
+                $this->log("cannot nack message: {$e->getMessage()}", 'error');
+            }
+        } else {
+            $this->log("cannot nack message: channel is closed", 'error');
+        }
     }
 }

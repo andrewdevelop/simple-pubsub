@@ -12,16 +12,19 @@ use Core\Messaging\Contracts\Publisher;
  */
 class EventPublisher extends Reactor
 {
-    protected Publisher $publisher;
-
-    public function __construct(Publisher $publisher)
+    public function __construct(
+        protected readonly Publisher $publisher,
+    )
     {
-        $this->publisher = $publisher;
     }
 
+    /**
+     * @param string $event_name
+     * @param Event $event
+     * @return mixed
+     */
     public function handle($event_name, Event $event)
     {
-        $message = (string)$event;
-        return $this->publisher->publish($message);
+        return $this->publisher->publish(json_encode($event->toArray()));
     }
 }

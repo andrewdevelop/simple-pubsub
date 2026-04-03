@@ -4,10 +4,9 @@ namespace Core\Messaging\Console;
 
 use Core\EventSourcing\Contracts\EventDispatcher;
 use Core\EventSourcing\DomainEvent;
-use Core\Messaging\Consumer;
+use Core\Messaging\Contracts\Consumer;
 use Exception;
 use Illuminate\Console\Command;
-use Illuminate\Contracts\Config\Repository;
 use PhpAmqpLib\Message\AMQPMessage;
 
 class ConsumeMessages extends Command
@@ -25,36 +24,27 @@ class ConsumeMessages extends Command
      */
     protected $description = 'Listen to a queue.';
 
-    protected EventDispatcher $dispatcher;
-
-    protected Repository $config;
-
     /**
      * Create a new command instance.
-     * @param EventDispatcher $dispatcher
-     * @param Repository $config
      */
-    public function __construct(EventDispatcher $dispatcher, Repository $config)
+    public function __construct(
+        protected readonly EventDispatcher $dispatcher,
+        protected readonly Consumer        $consumer,
+    )
     {
         parent::__construct();
-        $this->dispatcher = $dispatcher;
-        $this->config = $config;
     }
 
     /**
      * Execute the console command.
-     * @return mixed
+     * @return void
      * @throws Exception
      */
     public function handle()
     {
-        $consumer = new Consumer($this->config->get('mq'), $this->option('timeout'));
-        $consumer->consume(
-            callback: function (AMQPMessage $message) {
-                $event = $this->mapMessageToEvent($message);
-                $this->dispatcher->dispatch($event);
-            }
-        );
+        $this->consumer->consume(function (AMQPMessage $message) {
+            $this->dispatcher->dispatch($this->mapMessageToEvent($message));
+        });
     }
 
     /**
@@ -63,7 +53,10 @@ class ConsumeMessages extends Command
      */
     protected function mapMessageToEvent(AMQPMessage $message): DomainEvent
     {
-        $payload = json_decode($message->body, true);
+        $payload = json_decode($message->getBody(), true);
+        if (!is_array($payload)) {
+            throw new \InvalidArgumentException('Invalid payload received, expected JSON object or array.');
+        }
         return new DomainEvent($payload);
     }
 }
