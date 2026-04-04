@@ -22,6 +22,10 @@ final class InternalConfig
     {
     }
 
+    /**
+     * @param array<string, mixed> $config
+     * @return self
+     */
     public static function fromArray(array $config): self
     {
         return new self(

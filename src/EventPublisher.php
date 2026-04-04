@@ -25,6 +25,8 @@ class EventPublisher extends Reactor
      */
     public function handle($event_name, Event $event)
     {
-        return $this->publisher->publish(json_encode($event->toArray()));
+        $payload = method_exists($event, 'toArray') ? $event->toArray() : (array) $event;
+        $message = json_encode($payload);
+        return $this->publisher->publish(is_string($message) ? $message : '');
     }
 }

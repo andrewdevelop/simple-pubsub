@@ -53,7 +53,7 @@ class Publisher implements Contract
      * @return AMQPMessage
      * @throws Exception
      */
-    public function publish(string $str_message): AMQPMessage
+    public function publish(string $str_message)
     {
         $this->connect();
         $message = $this->makeMessage($str_message);

@@ -150,6 +150,10 @@ class Consumer implements Contract
         $this->log("connected to channel $channel_id", 'info');
     }
 
+    /**
+     * @param callable $callback
+     * @return mixed
+     */
     public function consume(callable $callback)
     {
         $handler = function (AMQPMessage $message) use ($callback) {
@@ -274,6 +278,9 @@ class Consumer implements Contract
         );
     }
 
+    /**
+     * @inheritDoc
+     */
     public function close()
     {
         $this->disconnect();
