@@ -20,7 +20,7 @@ class ConsumerTest extends TestCase
         Mockery::close();
     }
 
-    protected function createConsumer(bool $withFailover = false, bool $strict = false): Consumer
+    protected function createConsumer(bool $withDlq = false, bool $strict = false): Consumer
     {
         $config = new InternalConfig(
             host: 'localhost',
@@ -29,7 +29,7 @@ class ConsumerTest extends TestCase
             password: 'guest',
             vhost: '/',
             service_id: 'test_service',
-            with_failover: $withFailover
+            with_dlq: $withDlq
         );
 
         return new Consumer($config, 10, $strict, true, null);

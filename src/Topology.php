@@ -9,59 +9,64 @@ class Topology
 {
     /**
      * @param AMQPChannel $channel
-     * @param string $exchangeName
+     * @param string $exchange_name
      * @return void
      */
-    public static function declareExchange(AMQPChannel $channel, string $exchangeName = 'events'): void
+    public static function declareExchange(AMQPChannel $channel, string $exchange_name = 'events'): void
     {
-        $channel->exchange_declare($exchangeName, 'fanout', false, true, false);
+        $channel->exchange_declare($exchange_name, 'fanout', false, true, false);
     }
 
     /**
      * @param AMQPChannel $channel
-     * @param string $serviceId
-     * @param bool $withFailover
-     * @param string $exchangeName
-     * @param string $queuePrefix
+     * @param string $service_id
+     * @param bool $with_dlq
+     * @param string $exchange_name
+     * @param string $queue_prefix
      * @param int $retry_delay_sec
+     * @param int $dlq_message_ttl_sec
      * @return string
      */
     public static function declareQueue(
         AMQPChannel $channel,
-        string $serviceId,
-        bool $withFailover = false,
-        string $exchangeName = 'events',
-        string $queuePrefix = 'evt',
-        int $retry_delay_sec = 5
+        string      $service_id,
+        bool        $with_dlq = false,
+        string      $exchange_name = 'events',
+        string      $queue_prefix = 'evt',
+        int         $retry_delay_sec = 5,
+        int         $dlq_message_ttl_sec = 86400
     ): string {
-        $queue = $queuePrefix . '_' . $serviceId;
+        $queue = $queue_prefix . '_' . $service_id;
         
         // 1. Declare fanout exchange
-        self::declareExchange($channel, $exchangeName);
+        self::declareExchange($channel, $exchange_name);
 
         $arguments = [];
-        if ($withFailover) {
-            $retryExchange = 'retry_dx_' . $serviceId;
-            $retryQueue = $queue . '_retry_'. $retry_delay_sec;
-            $dlqQueue = $queue . '_dlq';
+        if ($with_dlq) {
+            $retry_exchange = 'retry_dx_' . $service_id;
+            $retry_queue = $queue . '_retry_'. $retry_delay_sec;
+            $dlq = $queue . '_dlq';
 
             // Declare Retry Exchange (Direct)
-            $channel->exchange_declare($retryExchange, 'direct', false, true, false);
+            $channel->exchange_declare($retry_exchange, 'direct', false, true, false);
 
             // Declare Retry Queue (TTL = 5s, DLX points back to main queue)
-            $retryArgs = new AMQPTable([
+            $retry_args = new AMQPTable([
                 'x-dead-letter-exchange' => '',
                 'x-dead-letter-routing-key' => $queue,
                 'x-message-ttl' => $retry_delay_sec,
             ]);
-            $channel->queue_declare($retryQueue, false, true, false, false, false, $retryArgs);
-            $channel->queue_bind($retryQueue, $retryExchange, $queue);
+            $channel->queue_declare($retry_queue, false, true, false, false, false, $retry_args);
+            $channel->queue_bind($retry_queue, $retry_exchange, $queue);
 
             // Declare DLQ Queue
-            $channel->queue_declare($dlqQueue, false, true, false, false, false, new AMQPTable());
+            $dlq_args = new AMQPTable([
+                'x-message-ttl' => $dlq_message_ttl_sec,
+            ]);
+            $channel->queue_declare($dlq, false, true, false, false, false, $dlq_args);
 
             // Set DLX for Main Queue to route to Retry Exchange on reject
-            $arguments['x-dead-letter-exchange'] = $retryExchange;
+            $arguments['x-dead-letter-exchange'] = $retry_exchange;
             $arguments['x-dead-letter-routing-key'] = $queue;
         }
 
@@ -71,7 +76,7 @@ class Topology
         $channel->queue_declare($queue, false, true, false, false, false, $table);
 
         // 3. Bind the queue to the exchange
-        $channel->queue_bind($queue, $exchangeName);
+        $channel->queue_bind($queue, $exchange_name);
 
         return $queue;
     }

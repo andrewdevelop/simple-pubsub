@@ -27,7 +27,7 @@ class PublisherTest extends TestCase
             password: 'guest',
             vhost: '/',
             service_id: 'test_service',
-            with_failover: false
+            with_dlq: false
         );
 
         $publisher = Mockery::mock(Publisher::class, [$config])->makePartial()->shouldAllowMockingProtectedMethods();

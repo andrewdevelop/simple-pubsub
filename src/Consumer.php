@@ -58,7 +58,7 @@ class Consumer implements Contract
     {
         $this->config = $config;
         $this->service_id = $config->service_id;
-        $this->with_dlq = $config->with_failover;
+        $this->with_dlq = $config->with_dlq;
         $this->connection_timeout = $config->connection_timeout;
         $this->heartbeat_timeout = $config->heartbeat_timeout;
         $this->timeout = $timeout ?? 3600;
@@ -77,7 +77,9 @@ class Consumer implements Contract
     protected function registerSignalHandlers(): void
     {
         # define('AMQP_DEBUG', true);
-        define('AMQP_WITHOUT_SIGNALS', false);
+        if (!defined('AMQP_WITHOUT_SIGNALS')) {
+            define('AMQP_WITHOUT_SIGNALS', false);
+        }
         pcntl_async_signals(true);
         pcntl_signal(SIGTERM, [$this, 'handleSignals']); // 15 : supervisor default stop
         pcntl_signal(SIGINT, [$this, 'handleSignals']);  // 2  : ctrl+c
@@ -262,7 +264,8 @@ class Consumer implements Contract
             $this->with_dlq,
             $this->config->exchange_name,
             $this->config->queue_prefix,
-            $this->config->retry_delay_sec
+            $this->config->retry_delay_sec,
+            $this->config->dlq_message_ttl_sec
         );
 
         $channel->basic_consume(

@@ -21,6 +21,7 @@ return [
     'with_failover' => env('RABBITMQ_WITH_FAILOVER', false),
     'max_retries' => env('RABBITMQ_MAX_RETRIES', 5),
     'retry_delay_sec' => env('RABBITMQ_RETRY_DELAY_SEC', 10),
+    'dlq_message_ttl_sec' => env('RABBITMQ_DLQ_MESSAGE_TTL_SEC', 432000), // 5 days
     'ssl_params' => [
         'ssl_on' => env('RABBITMQ_SSL', false),
         'cafile' => env('RABBITMQ_SSL_CAFILE', null),

@@ -27,7 +27,7 @@ class TopologyTest extends TestCase
         $this->assertTrue(true); // Asserting that the mock expectations were met
     }
 
-    public function testDeclareQueueWithoutFailover()
+    public function testDeclareQueueWithoutDlq()
     {
         $channel = Mockery::mock(AMQPChannel::class);
         
@@ -50,7 +50,7 @@ class TopologyTest extends TestCase
         $this->assertEquals('evt_test_service', $queueName);
     }
 
-    public function testDeclareQueueWithFailover()
+    public function testDeclareQueueWithDlq()
     {
         $channel = Mockery::mock(AMQPChannel::class);
         $serviceId = 'failover_service';
@@ -86,7 +86,10 @@ class TopologyTest extends TestCase
         // DLQ Queue
         $channel->shouldReceive('queue_declare')
             ->once()
-            ->with($dlqQueue, false, true, false, false, false, Mockery::type(AMQPTable::class));
+            ->with($dlqQueue, false, true, false, false, false, Mockery::on(function($arg) {
+                return $arg instanceof AMQPTable && 
+                       $arg->getNativeData()['x-message-ttl'] === 86400000;
+            }));
 
         // Main Queue with DLX arguments
         $channel->shouldReceive('queue_declare')
